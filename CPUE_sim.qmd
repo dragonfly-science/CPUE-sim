@@ -1,0 +1,244 @@
+---
+title: "Simulating CPUE best & worst practice\n"
+###bibliography: ../bibliography/dragonfly.bib
+#bibliography: ../references.bib
+#biblio-title: References
+title-block-banner: include/sweet-lips.png
+abstract: |
+  blabla
+abstract-title: Executive summary
+watermark: "DRAFT"
+author:
+  - Laura Trembley-Boyer
+  - Philipp Neubauer
+date: "`r as.POSIXlt(Sys.time(), 'GMT-12')`"
+date-format: long
+execute:
+  echo: false
+format:
+  pdf:
+    
+    toc: true
+    toc-depth: 3
+    pdf-engine: xelatex
+    latex_engine: xelatex
+    keep-tex: true
+    ##cite-method: biblatex
+    template: dragonfly-template/template.tex
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r dataload, message=FALSE, warning=FALSE}
+require(tidyverse)
+require(brms)
+require(tidybayes)
+
+Years <- 30
+rho <- 0.9
+q_r <- 1e-4
+B_at_t <- rep(0,Years)
+
+B_at_t[1] <- 10000
+for (t in 2:Years) B_at_t[t] <- B_at_t[1] + rho*(B_at_t[t-1]-B_at_t[1])+1000*rnorm(1)
+
+plot(B_at_t, t='l')
+plot(q_r*B_at_t, t='l')
+
+# variables X influence only q,
+# variables Z influence q and B
+
+alpha <-  0.1
+beta  <- -0.5
+delta <-  0.4
+gamma <-  -0.2
+
+sim_df <- data.frame(Year = 1:Years,
+                     Biomass = B_at_t) 
+
+
+CPUE_df <- data.frame(
+  Year = rep(1:Years, each=50)) %>%
+  group_by(Year) %>%
+  mutate(Operation = sample(1:Years,n(), replace = T),
+         rn = rnorm(n()),
+         on = (Operation-15)/30,
+         # cvar0 = (rn*(Year*0.02*2000+2000)*0.02+Year*0.02*2000+2000),
+         # cvar1 = (rn*(Year*0.02*2000+2000)*0.05+Year*0.02*2000+2000),
+         # cvar2 = (rn*(Year*0.02*2000+2000)*0.2+Year*0.02*2000+2000),
+         cvar0 = (on*(Year*0.02*2000+2000)*0.05+Year*0.02*200+2000),
+         cvar1 = (on*(Year*0.02*2000+2000)*0.1+Year*0.02*200+2000),
+         cvar2 = (on*(Year*0.02*2000+2000)*0.2+Year*0.02*200+2000)) %>%
+  ungroup() %>%
+  mutate(X2 = rnorm(n()),
+         cvar0=(cvar0-mean(cvar0))/sd(cvar0),
+         cvar1=(cvar1-mean(cvar1))/sd(cvar1),
+         cvar2=(cvar2-mean(cvar2))/sd(cvar2)) %>%
+  group_by(Operation) %>%
+  mutate(Op_fx0 = rnorm(1, Operation*0, sd=0.1)) %>%
+  group_by(Year) %>%
+  mutate(X1 = rnorm(n(),mean = rnorm(1,Year),sd=0.2),
+         Z1 = delta* B_at_t*q_r + rnorm(n()), sd=0.05) %>%
+  ungroup() %>%
+  mutate(Op_fx1 = Op_fx0 + Operation*0.02 - mean(Op_fx0 + Operation*0.02),
+         Op_fx2 = Op_fx0 + Operation*0.05  - mean(Op_fx0 + Operation*0.05),
+         X1 = (X1-mean(X1))/sd(X1)) %>%
+  inner_join(sim_df) %>%
+  ungroup() %>%
+  mutate(true_CPUE = Biomass*q_r,
+         rn = rnorm(n(),sd = 0.5),
+         obs_CPUE0 = exp(beta * X2 + gamma*cvar0 + Op_fx0 + rn)*Biomass*q_r,
+         obs_CPUE1 = exp(beta * X2 + gamma*cvar1 + Op_fx0 + rn)*Biomass*q_r,
+         obs_CPUE2 = exp(beta * X2 + gamma*cvar2 + Op_fx0 + rn)*Biomass*q_r) %>%
+  pivot_longer(contains(c('obs_CPUE','cvar')),names_to = 'Series', values_to = 'obs_CPUE')  %>%
+  mutate(Var = gsub('(.*)[0-9]',"\\1",Series),
+         Series = paste0('obs_CPUE',gsub('.*([0-9])',"\\1",Series))) %>%
+  pivot_wider(names_from = Var, values_from = obs_CPUE)  %>%
+  mutate(Operation = factor(Operation))
+  
+agg_CPUE_df <- CPUE_df %>%
+  group_by(Series, Year) %>%
+  summarise(obs_CPUE_se = sd(obs_CPUE)/sqrt(n()),
+            obs_CPUE = mean(obs_CPUE),
+            mcvar = mean(cvar),
+            sd_cvar = sd(cvar, na.rm=T)) %>%
+  inner_join(sim_df) %>%
+  group_by(Series) %>%
+   mutate(obs_CPUE = obs_CPUE/obs_CPUE[1])
+
+ggplot(agg_CPUE_df) +
+  geom_line(aes(x=Year,y=Biomass*q_r)) + 
+  geom_pointrange(aes(x=Year, y=obs_CPUE,ymin=obs_CPUE-obs_CPUE_se,ymax=obs_CPUE+obs_CPUE_se,col=Series))
+
+form_full <- log(obs_CPUE) ~ Year + X2 + cvar + Operation
+form_sub <- log(obs_CPUE) ~ Year + X2  + Operation
+
+lm0 <- lm(form_full,data = CPUE_df %>% filter(Series=='obs_CPUE0') %>% mutate(Year = factor(Year))) 
+lm1 <- lm(form_full,data = CPUE_df %>% filter(Series=='obs_CPUE1') %>% mutate(Year = factor(Year))) 
+lm2 <- lm(form_full,data = CPUE_df %>% filter(Series=='obs_CPUE2') %>% mutate(Year = factor(Year))) 
+
+lm0b <- lm(form_sub,data = CPUE_df %>% filter(Series=='obs_CPUE0') %>% mutate(Year = factor(Year))) 
+lm1b <- lm(form_sub,data = CPUE_df %>% filter(Series=='obs_CPUE1') %>% mutate(Year = factor(Year))) 
+lm2b <- lm(form_sub,data = CPUE_df %>% filter(Series=='obs_CPUE2') %>% mutate(Year = factor(Year))) 
+
+blm0 <- brm(form_full,backend = 'cmdstanr', save_model = 'cpue', data = CPUE_df %>% filter(Series=='obs_CPUE0') %>% mutate(Year = factor(Year)),cores=4) 
+blm1 <- brm(form_full,backend = 'cmdstanr', data = CPUE_df %>% filter(Series=='obs_CPUE1') %>% mutate(Year = factor(Year)),cores=4) 
+blm2 <- brm(form_full,backend = 'cmdstanr', data = CPUE_df %>% filter(Series=='obs_CPUE2') %>% mutate(Year = factor(Year)),cores=4) 
+
+blm0b <- brm(form_sub,backend = 'cmdstanr', data = CPUE_df %>% filter(Series=='obs_CPUE0') %>% mutate(Year = factor(Year)),cores=4) 
+blm1b <- brm(form_sub,backend = 'cmdstanr', data = CPUE_df %>% filter(Series=='obs_CPUE1') %>% mutate(Year = factor(Year)),cores=4) 
+blm2b <- brm(form_sub,backend = 'cmdstanr', data = CPUE_df %>% filter(Series=='obs_CPUE2') %>% mutate(Year = factor(Year)),cores=4) 
+
+loo_compare(loo(blm0b),loo(blm0))
+
+summary(lm0)
+summary(lm0b)
+AIC(lm0b)-AIC(lm0)
+summary(lm1)
+summary(lm1b)
+AIC(lm1b)-AIC(lm1)
+summary(lm2)
+summary(lm2b)
+AIC(lm2b)-AIC(lm2)
+
+agg_CPUE_df_est <- agg_CPUE_df
+agg_CPUE_df_est$est_CPUE       <- 0
+agg_CPUE_df_est$est_CPUE_lower <- 0
+agg_CPUE_df_est$est_CPUE_upper <- 0
+agg_CPUE_df_est$est_CPUE[agg_CPUE_df_est$Series=='obs_CPUE0']       <- exp(predict(lm0,newdata = data.frame(Year=as.factor(1:30),X2=0,cvar = 0, Operation=levels(CPUE_df$Operation)[1]), interval = "confidence")[,1])
+agg_CPUE_df_est$est_CPUE_lower[agg_CPUE_df_est$Series=='obs_CPUE0'] <- exp(predict(lm0,newdata = data.frame(Year=as.factor(1:30),X2=0,cvar = 0, Operation=levels(CPUE_df$Operation)[1]), interval = "confidence")[,2])
+agg_CPUE_df_est$est_CPUE_upper[agg_CPUE_df_est$Series=='obs_CPUE0'] <- exp(predict(lm0,newdata = data.frame(Year=as.factor(1:30),X2=0,cvar = 0, Operation=levels(CPUE_df$Operation)[1]), interval = "confidence")[,3])
+agg_CPUE_df_est$est_CPUE[agg_CPUE_df_est$Series=='obs_CPUE1']       <- exp(predict(lm1,newdata = data.frame(Year=as.factor(1:30),X2=0,cvar = 0 , Operation=levels(CPUE_df$Operation)[1]), interval = "confidence")[,1])
+agg_CPUE_df_est$est_CPUE_lower[agg_CPUE_df_est$Series=='obs_CPUE1'] <- exp(predict(lm1,newdata = data.frame(Year=as.factor(1:30),X2=0,cvar = 0 , Operation=levels(CPUE_df$Operation)[1]), interval = "confidence")[,2])
+agg_CPUE_df_est$est_CPUE_upper[agg_CPUE_df_est$Series=='obs_CPUE1'] <- exp(predict(lm1,newdata = data.frame(Year=as.factor(1:30),X2=0,cvar = 0 , Operation=levels(CPUE_df$Operation)[1]), interval = "confidence")[,3])
+agg_CPUE_df_est$est_CPUE[agg_CPUE_df_est$Series=='obs_CPUE2']       <- exp(predict(lm2,newdata = data.frame(Year=as.factor(1:30),X2=0,cvar = 0 , Operation=levels(CPUE_df$Operation)[1]), interval = "confidence")[,1])
+agg_CPUE_df_est$est_CPUE_lower[agg_CPUE_df_est$Series=='obs_CPUE2'] <- exp(predict(lm2,newdata = data.frame(Year=as.factor(1:30),X2=0,cvar = 0 , Operation=levels(CPUE_df$Operation)[1]), interval = "confidence")[,2])
+agg_CPUE_df_est$est_CPUE_upper[agg_CPUE_df_est$Series=='obs_CPUE2'] <- exp(predict(lm2,newdata = data.frame(Year=as.factor(1:30),X2=0,cvar = 0 , Operation=levels(CPUE_df$Operation)[1]), interval = "confidence")[,3])
+agg_CPUE_df_est$model = "LM_full"
+
+agg_CPUE_df_est_sub <- agg_CPUE_df
+agg_CPUE_df_est_sub$est_CPUE <- 0
+agg_CPUE_df_est_sub$est_CPUE_lower <- 0
+agg_CPUE_df_est_sub$est_CPUE_upper <- 0
+agg_CPUE_df_est_sub$est_CPUE[agg_CPUE_df_est_sub$Series=='obs_CPUE0'] <- exp(predict(lm0b,newdata = data.frame(Year=as.factor(1:30),X2=0,cvar = 0 , Operation=levels(CPUE_df$Operation)[1]), interval = "confidence")[,1])
+agg_CPUE_df_est_sub$est_CPUE_lower[agg_CPUE_df_est_sub$Series=='obs_CPUE0'] <- exp(predict(lm0b,newdata = data.frame(Year=as.factor(1:30),X2=0,cvar = 0 , Operation=levels(CPUE_df$Operation)[1]), interval = "confidence")[,2])
+agg_CPUE_df_est_sub$est_CPUE_upper[agg_CPUE_df_est_sub$Series=='obs_CPUE0'] <- exp(predict(lm0b,newdata = data.frame(Year=as.factor(1:30),X2=0,cvar = 0 , Operation=levels(CPUE_df$Operation)[1]), interval = "confidence")[,3])
+agg_CPUE_df_est_sub$est_CPUE[agg_CPUE_df_est_sub$Series=='obs_CPUE1'] <- exp(predict(lm1b,newdata = data.frame(Year=as.factor(1:30),X2=0,cvar = 0 , Operation=levels(CPUE_df$Operation)[1]), interval = "confidence")[,1])
+agg_CPUE_df_est_sub$est_CPUE_lower[agg_CPUE_df_est_sub$Series=='obs_CPUE1'] <- exp(predict(lm1b,newdata = data.frame(Year=as.factor(1:30),X2=0,cvar = 0 , Operation=levels(CPUE_df$Operation)[1]), interval = "confidence")[,2])
+agg_CPUE_df_est_sub$est_CPUE_upper[agg_CPUE_df_est_sub$Series=='obs_CPUE1'] <- exp(predict(lm1b,newdata = data.frame(Year=as.factor(1:30),X2=0,cvar = 0 , Operation=levels(CPUE_df$Operation)[1]), interval = "confidence")[,3])
+agg_CPUE_df_est_sub$est_CPUE[agg_CPUE_df_est_sub$Series=='obs_CPUE2'] <- exp(predict(lm2b,newdata = data.frame(Year=as.factor(1:30),X2=0,cvar = 0 , Operation=levels(CPUE_df$Operation)[1]), interval = "confidence")[,1])
+agg_CPUE_df_est_sub$est_CPUE_lower[agg_CPUE_df_est_sub$Series=='obs_CPUE2'] <- exp(predict(lm2b,newdata = data.frame(Year=as.factor(1:30),X2=0,cvar = 0 , Operation=levels(CPUE_df$Operation)[1]), interval = "confidence")[,2])
+agg_CPUE_df_est_sub$est_CPUE_upper[agg_CPUE_df_est_sub$Series=='obs_CPUE2'] <- exp(predict(lm2b,newdata = data.frame(Year=as.factor(1:30),X2=0,cvar = 0 , Operation=levels(CPUE_df$Operation)[1]), interval = "confidence")[,3])
+agg_CPUE_df_est_sub$model = "LM_sub"
+
+agg_CPUE_df_bayes <- agg_CPUE_df
+agg_CPUE_df_bayes$est_CPUE       <- c(
+  exp(posterior_summary(posterior_epred(blm0, newdata = data.frame(Year=as.factor(1:30),X2=0,cvar=0 , Operation=levels(CPUE_df$Operation)[1]), re_formula=NA))[,1]),
+  exp(posterior_summary(posterior_epred(blm1, newdata = data.frame(Year=as.factor(1:30),X2=0,cvar=0 , Operation=levels(CPUE_df$Operation)[1]), re_formula=NA))[,1]),
+  exp(posterior_summary(posterior_epred(blm2, newdata = data.frame(Year=as.factor(1:30),X2=0,cvar=0 , Operation=levels(CPUE_df$Operation)[1]), re_formula=NA))[,1]))
+agg_CPUE_df_bayes$est_CPUE_lower <- c(
+  exp(posterior_summary(posterior_epred(blm0, newdata = data.frame(Year=as.factor(1:30),X2=0,cvar=0 , Operation=levels(CPUE_df$Operation)[1]), re_formula=NA))[,3]),
+  exp(posterior_summary(posterior_epred(blm1, newdata = data.frame(Year=as.factor(1:30),X2=0,cvar=0 , Operation=levels(CPUE_df$Operation)[1]), re_formula=NA))[,3]),
+  exp(posterior_summary(posterior_epred(blm2, newdata = data.frame(Year=as.factor(1:30),X2=0,cvar=0 , Operation=levels(CPUE_df$Operation)[1]), re_formula=NA))[,3]))
+agg_CPUE_df_bayes$est_CPUE_upper <- c(
+  exp(posterior_summary(posterior_epred(blm0, newdata = data.frame(Year=as.factor(1:30),X2=0,cvar=0 , Operation=levels(CPUE_df$Operation)[1]), re_formula=NA))[,4]),
+  exp(posterior_summary(posterior_epred(blm1, newdata = data.frame(Year=as.factor(1:30),X2=0,cvar=0 , Operation=levels(CPUE_df$Operation)[1]), re_formula=NA))[,4]),
+  exp(posterior_summary(posterior_epred(blm2, newdata = data.frame(Year=as.factor(1:30),X2=0,cvar=0 , Operation=levels(CPUE_df$Operation)[1]), re_formula=NA))[,4]))
+agg_CPUE_df_bayes$model = "Bayes_full"
+
+agg_CPUE_df_bayes_sub <- agg_CPUE_df
+agg_CPUE_df_bayes_sub$est_CPUE <- c(
+  exp(posterior_summary(posterior_epred(blm0b, newdata = data.frame(Year=as.factor(1:30),X2=0,cvar=0 , Operation=levels(CPUE_df$Operation)[1]), re_formula=NA))[,1]),
+  exp(posterior_summary(posterior_epred(blm1b, newdata = data.frame(Year=as.factor(1:30),X2=0,cvar=0 , Operation=levels(CPUE_df$Operation)[1]), re_formula=NA))[,1]),
+  exp(posterior_summary(posterior_epred(blm2b, newdata = data.frame(Year=as.factor(1:30),X2=0,cvar=0 , Operation=levels(CPUE_df$Operation)[1]), re_formula=NA))[,1]))
+agg_CPUE_df_bayes_sub$est_CPUE_lower <- c(
+  exp(posterior_summary(posterior_epred(blm0b, newdata = data.frame(Year=as.factor(1:30),X2=0,cvar=0 , Operation=levels(CPUE_df$Operation)[1]), re_formula=NA))[,3]),
+  exp(posterior_summary(posterior_epred(blm1b, newdata = data.frame(Year=as.factor(1:30),X2=0,cvar=0 , Operation=levels(CPUE_df$Operation)[1]), re_formula=NA))[,3]),
+  exp(posterior_summary(posterior_epred(blm2b, newdata = data.frame(Year=as.factor(1:30),X2=0,cvar=0 , Operation=levels(CPUE_df$Operation)[1]), re_formula=NA))[,3]))
+agg_CPUE_df_bayes_sub$est_CPUE_upper <- c(
+  exp(posterior_summary(posterior_epred(blm0b, newdata = data.frame(Year=as.factor(1:30),X2=0,cvar=0 , Operation=levels(CPUE_df$Operation)[1]), re_formula=NA))[,4]),
+  exp(posterior_summary(posterior_epred(blm1b, newdata = data.frame(Year=as.factor(1:30),X2=0,cvar=0 , Operation=levels(CPUE_df$Operation)[1]), re_formula=NA))[,4]),
+  exp(posterior_summary(posterior_epred(blm2b, newdata = data.frame(Year=as.factor(1:30),X2=0,cvar=0 , Operation=levels(CPUE_df$Operation)[1]), re_formula=NA))[,4]))
+agg_CPUE_df_bayes_sub$model = "Bayes_sub"
+# 
+std <- . %>%
+  group_by(Series) %>%
+  mutate(#est_CPUE = ifelse(Year>1,est_CPUE[1]+est_CPUE,est_CPUE),
+         #est_CPUE = exp(est_CPUE),
+         est_CPUE_lower = est_CPUE_lower/gmean(est_CPUE),
+         est_CPUE_upper = est_CPUE_upper/gmean(est_CPUE),
+         est_CPUE = est_CPUE/gmean(est_CPUE))
+
+agg_CPUE_df <- agg_CPUE_df_est %>% std() %>%
+  bind_rows(agg_CPUE_df_est_sub %>% std())  %>%
+  bind_rows(agg_CPUE_df_bayes %>% std())  %>%
+  bind_rows(agg_CPUE_df_bayes_sub %>% std())
+
+ggplot(agg_CPUE_df) +
+  geom_line(aes(x=Year,y=Biomass*q_r/gmean(Biomass*q_r))) + 
+  geom_point(aes(x=Year, y=obs_CPUE/gmean(obs_CPUE))) +
+  geom_line(aes(x=Year,y=est_CPUE, col=Series)) + 
+  geom_ribbon(aes(x=Year, y=est_CPUE,ymin=est_CPUE_lower,ymax=est_CPUE_upper, col=Series, fill=Series), alpha=0.2) +
+  facet_grid(Series~model) +
+  coord_cartesian(ylim=c(0,2.5)) 
+  
+
+ggplot(agg_CPUE_df) +
+  geom_line(aes(x=Year,y=Biomass*q_r/gmean(Biomass*q_r))) + 
+  geom_point(aes(x=Year, y=obs_CPUE,col=Series)) +
+  ylim(c(0,5))
+
+
+ggplot(agg_CPUE_df) +
+  geom_line(aes(x=Year,y=Biomass*q_r)) + 
+  geom_pointrange(aes(x=Year, y=obs_CPUE,ymin=obs_CPUE-obs_CPUE_se,ymax=obs_CPUE+obs_CPUE_se,col=Series))
+
+
+ggplot(agg_CPUE_df) +
+  geom_line(aes(x=Year,y=Biomass*q_r)) + 
+  geom_pointrange(aes(x=Year, y=mcvar,ymin=mcvar-sd_cvar,ymax=mcvar+sd_cvar,col=Series))
+
+```
+
+\clearpage
+{{< pagebreak >}}

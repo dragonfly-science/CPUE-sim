@@ -1,7 +1,7 @@
 #!/bin/bash
 
 set -exu
-Rscript CPUE_sim.r ||true
+quarto render CPUE_sim.qmd ||true
 
 if test -n "$(find . -maxdepth 1 -name '*.Rdata' -print -quit)"
 then

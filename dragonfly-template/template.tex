@@ -1,0 +1,440 @@
+\documentclass{scrartcl}
+% KOMA script equivalent to report - documentclass
+
+%% DATE - FORMAT
+\usepackage{datetime}
+\newdateformat{monthyeardate}{\twodigit{\THEDAY}~\monthname[\THEMONTH] \THEYEAR}
+
+$if(date)$
+  \date{$date$}
+$endif$
+
+%% MARGINS 
+\usepackage{geometry}
+\geometry{
+ a4paper,
+ left   = 30mm, 
+ right  = 25mm,
+ top    = 20mm, 
+ bottom = 22mm}
+
+%% COLOURS
+\usepackage[table]{xcolor}
+\usepackage{tablestyles}
+\usepackage{hhline}
+\usepackage{multirow}
+\usepackage[colorlinks = false]{hyperref}
+\hypersetup{
+    pdftitle={$title$},
+    pdfpagemode=FullScreen,
+}
+
+\definecolor{logo-blue}{RGB}{28, 152, 196}
+
+%% FONTS
+\usepackage[T1]{fontenc}
+\usepackage{fontspec}
+\usepackage{ragged2e}
+\usepackage{titlesec}
+\usepackage{plex-otf}
+
+\setlength{\parskip}{\baselineskip}
+
+%% HEADINGS - FORMAT
+\titleformat{\section}{\color{logo-blue}\fontsize{20pt}{24pt}
+  \sffamily\bfseries}{\thesection}{0.5em}{}
+\titleformat{\subsection}{\color{logo-blue}\fontsize{12pt}{15pt}
+  \sffamily\bfseries}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}{\fontsize{10pt}{14pt}
+  \rmfamily\bfseries}{\thesubsubsection}{1em}{}
+\titleformat{\paragraph}{\fontsize{10pt}{14pt}\rmfamily}{}{0em}{}
+
+\titlespacing{\section}{0pt}{\baselineskip}{0pt}
+\titlespacing{\subsection}{0pt}{\baselineskip}{0pt}
+\titlespacing{\subsubsection}{0pt}{\baselineskip}{0pt}
+\titlespacing{\paragraph}{0pt}{\baselineskip}{0pt}
+
+%% TITLE
+\usepackage{tikz}
+
+%% FUNCTION - SPECIFIC TEXT PLACEMENT
+\newcommand\PlaceText[3]{%
+  \tikz[remember picture, overlay]
+  \node[outer sep = 0pt, inner sep = 0pt, anchor = south west]
+    at ([xshift = #1, yshift = -#2]current page.north west) {
+      \begin{minipage}{\textwidth-40mm}
+        {#3}
+      \end{minipage}};
+}
+
+%% FUNCTION - SPECIFIC IMAGE PLACEMENT
+\newcommand\PlaceImage[4]{%
+  \tikz[remember picture, overlay] 
+    \node[anchor = north, inner sep = 0pt] at 
+      ([xshift = #1, yshift = -#2]current page.north){
+      \includegraphics[width = #3]{#4}};
+}
+
+%% FUNCTION - SCALE IMAGE TO FIT BANNER
+\usepackage{trimclip}
+\newcommand\picdims[4][]{%
+  \setbox0=\hbox{\includegraphics[#1]{#4}}%
+  \clipbox{.5\dimexpr\wd0-#2\relax{} %
+           .5\dimexpr\ht0-#3\relax{} %
+           .5\dimexpr\wd0-#2\relax{} %
+           .5\dimexpr\ht0-#3\relax}{\includegraphics[#1]{#4}}}
+
+%% TITLE IMAGE LOCATION
+\newcommand{\placetitleimage}[1][default-nz]{
+  \tikz[remember picture,overlay] 
+    \node[opacity =0.75, anchor =north, inner sep =0pt] at (current page.north){
+\picdims[width = \paperwidth]{\paperwidth}{100mm}{#1}};
+  \tikz[remember picture,overlay]
+    \node[fill = logo-blue, anchor = north, minimum height = 8mm, 
+    minimum width = \paperwidth] (names) at (current page.north) {};
+}
+
+$if(title)$
+\title{$title$$if(thanks)$\thanks{$thanks$}$endif$}
+$endif$
+
+$if(subtitle)$
+\subtitle{$subtitle$}
+$endif$
+
+%% AUTHOR - FORMAT
+\newcounter{authorcounter}
+\setcounter{authorcounter}{0}
+$for(author)$ \addtocounter{authorcounter}{1} $endfor$
+
+\newcommand{\authorheading}{Authors:}
+\ifnum\value{authorcounter} = 1
+  \renewcommand{\authorheading}{Author:}
+  \author{$author$}
+\else
+  \ifnum\value{authorcounter} = 2
+    {\author{$for(author)$$author$ $sep$ and $endfor$}}
+\else
+  {\author{
+    $for(by-author/allbutlast)${{$by-author.name.literal$}}$sep$,~
+    $endfor$
+    $for(by-author/last)$ {and {$by-author.name.literal$}}
+    $endfor$}}
+  \fi
+\fi
+
+%% WATERMARK
+% e.g. CONFIDENTIAL, RESTRICTED, INTERNAL ONLY, DRAFT
+\newcommand{\watermark}[3]{
+  \newsavebox\mybox
+  \savebox\mybox{
+    \tikz[minimum height = 8mm, color = white, opacity = 1, remember picture, overlay] 
+      \node[draw, anchor = west, very thick] at 
+      ([xshift = #1, yshift = -#2] current page.north west)
+      {\fontsize{12}{12}\selectfont \PlexMediumSS \textcolor{white}{\sffamily #3}};}
+  {\usebox\mybox}
+}
+
+%% DEFINITION - dragonfly default \maketitle
+\makeatletter
+\newcommand{\makedragonfly}{\bgroup\setlength{\parindent}{0pt}
+  
+  $if(title-block-banner)$
+    \placetitleimage[$title-block-banner$]
+    % \PlaceImage{100mm}{90mm}{5mm}{cc}
+  $else$
+    \placetitleimage
+  $endif$
+
+  \begin{flushleft}
+    \PlaceText{30mm}{60mm}{\fontsize{34}{38}\selectfont
+      \textcolor{white}{\sffamily\bfseries \@title}}
+    \PlaceText{30mm}{75mm}{\fontsize{20}{24}\selectfont
+      \textcolor{white}{\sffamily\bfseries \@subtitle}}
+  \end{flushleft}
+
+  % line adjacent to date & author
+  \tikz[remember picture,overlay]
+    \draw[white, very thick, xshift = -10mm , yshift = -117.5] (1,0) -- +(0,0.75);
+  \tikz[remember picture,overlay]
+    \draw[white, very thick, xshift = 35mm , yshift = -117.5] (1,0) -- +(0,0.75);
+
+  \PlaceText{35mm}{88mm}{\fontsize{9}{9}\selectfont
+    \textcolor{white}{\sffamily\bfseries Date:}}
+  \PlaceText{35mm}{92.5mm}{\fontsize{9}{9}\selectfont
+    \textcolor{white}{\sffamily \@date}}
+  \PlaceText{80mm}{88mm}{\fontsize{9}{9}\selectfont
+    \textcolor{white}{\sffamily\bfseries \authorheading}}
+  \PlaceText{80mm}{92.5mm}{\fontsize{9}{9}\selectfont
+    \textcolor{white}{\sffamily \@author}}
+
+  $if(watermark)$
+  \watermark{30mm}{20mm}{\MakeUppercase{$watermark$}}
+  $endif$
+  \PlaceImage{\paperwidth-140mm}{13.45mm}{38mm}{%
+    Dragonfly-logo-reversed-white-only}  
+  
+  %% CREATIVE COMMONS
+  % Uing images uploaded using the creative commons license, in Qaurto yaml use 
+  %% cc: "<web link to artists image web page>"
+  % for this template to recognise it to add logo and hyperlink
+  $if(cc)$
+    \PlaceImage{100mm}{90mm}{5mm}{cc}
+    \href{$cc$}{
+      \begin{minipage}{20mm}
+        \setlength{\parskip}{0pt}
+        \PlaceText{205mm}{92.5mm}{\fontsize{1}{0}\selectfont
+        \textcolor{white}{\sffamily cc}}
+      \end{minipage}
+    }
+  $endif$
+  
+  \vspace{20mm}
+}
+\makeatother
+
+%% TABLE OF CONTENTS
+$if(toc)$
+  $if(toc-title)$
+    \renewcommand*\contentsname{$toc-title$}
+  $endif$
+$endif$
+
+$if(lof)$
+  \listoffigures
+$endif$
+
+$if(lot)$
+  \listoftables
+$endif$
+
+% add page breaks
+\let\oldtableofcontents\tableofcontents%remember the definition
+\renewcommand\tableofcontents{
+  \setcounter{tocdepth}{$toc-depth$}
+  % \newpage
+  \oldtableofcontents%use the standard toc
+  \clearpage
+}
+
+%% COMMAND - CREATE PAGEBREAK IN TOC
+%  Place command \tocbreak in repot where you want break to be in toc
+\newcommand{\tocbreak}{\addtocontents{toc}{\protect\newpage}}
+
+% HEADER & FOOTER
+\usepackage{fancyhdr}
+\usepackage[page]{totalcount}
+\usepackage{lastpage}
+
+\pagestyle{fancyplain}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0pt}
+
+%% HEADER - BLUE LINE
+\chead{\tikz[remember picture, overlay]
+    \node[fill = logo-blue, anchor = north, 
+      minimum height = 8mm, minimum width = \paperwidth] 
+      (names) at (current page.north) {};}
+
+%% FOOTER - DRAGONFLY ICON
+\rfoot{%
+  \makebox[0pt][c]{%
+    \includegraphics[height = 10mm]{%
+      Dragonfly-Icon-Blue}\hspace{-20mm}}}
+
+%% FOOTER - PAGENUM, LINE, TITLE
+\lfoot{%
+  \makebox(0, 20)[tr]{{%
+    \fontsize{8}{8}\selectfont \PlexMediumSS \textcolor{logo-blue}{%
+    \thepage/\pageref*{LastPage} \hspace{15mm}}}}
+  \makebox(0, 20)[tl]{{%
+    \fontsize{8}{8}\selectfont \PlexMediumSS \textcolor{logo-blue}{%
+    \hspace{-7.5mm} $title$}}}
+  \tikz[remember picture, overlay] 
+    \draw[logo-blue, thin, xshift = -22.5mm, yshift = 3mm] (1, 0) -- +(0, 0.6);
+}
+
+%% TABLES AND FIGURES
+\usepackage{colortbl}
+\usepackage{floatrow}
+\usepackage{floatflt}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{tabularx}
+
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+
+% \RaggedRight % hyphenate words
+\raggedright % reduce paragraph hyphenation
+
+%% TABLES
+\usepackage{longtable, booktabs, array}
+\usepackage{calc} % for calculating minipage widths
+
+% when using booktabs - remove lines, add spce between header & row
+\renewcommand{\bottomrule}{}
+\renewcommand{\midrule}{\addlinespace[5pt]}
+\renewcommand{\toprule}{}
+
+\renewcommand{\arraystretch}{1.25}
+
+%% FIGURES
+$if(graphics)$
+  \usepackage{graphicx}
+  \makeatletter
+    \def\maxwidth{
+      \ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}
+    \def\maxheight{
+      \ifdim\Gin@nat@height>\textheight\textheight\else\Gin@nat@height\fi}
+  \makeatother
+  % Scale images if necessary, so that they will not overflow the page
+  % margins by default, and it is still possible to overwrite the defaults
+  % using explicit options in \includegraphics[width, height, ...]{}
+  \setkeys{Gin}{width = \maxwidth, height = \maxheight, keepaspectratio}
+  % Set default figure placement to htbp
+  \makeatletter
+    \def\fps@figure{htbp!}
+  \makeatother
+$endif$
+
+\graphicspath{{../dragonfly-template/images/}}
+
+%% CAPTIONS
+\floatsetup[table]{capposition = top, font = normal}
+
+\DeclareCaptionLabelFormat{custom}{%
+  \color{logo-blue}\fontsize{9pt}{12pt}\sffamily\bfseries#1 #2
+}
+
+%% CAPTIONS - VLINE
+\makeatletter
+\newcommand*{\CaptionVLineWidth}{1.2pt}
+\newcommand*{\CaptionVLineSep}{5mm}
+
+\newcommand*{\CaptionVLine}{%
+  \kern\dimexpr-\CaptionVLineSep-\CaptionVLineWidth\relax
+  \textcolor{logo-blue}{\vline width\CaptionVLineWidth}%
+  \kern\CaptionVLineSep\relax
+}
+
+\DeclareCaptionFormat{captionline}[%
+  % Single line captions
+  \raggedright
+  \hspace{5mm}\CaptionVLine#1%
+  \sbox0{#3}%
+  \ifdim\wd0 > 0pt %
+    #2\fontsize{9pt}{12pt}\sffamily#3%
+  \fi \par
+]{% Multi-line captions
+  \caption@ifin@list\caption@lsepcrlist\caption@lsepname{%
+  }{%
+    \sbox0{%
+      \parbox[t]{\linewidth}{%
+      \@hangfrom{}%
+      \advance\caption@parindent\hangindent
+      \advance\caption@hangindent\hangindent
+      \xdef\CaptionHangIndent{\the\hangindent}%
+      \raggedright
+      \caption@@par#1#2\fontsize{9pt}{12pt}\sffamily{#3}\par
+      }%
+    }%
+    \noindent
+    \kern\CaptionHangIndent\relax
+    \hspace{5mm}\CaptionVLine
+    \kern-\CaptionHangIndent\relax
+    \usebox0%
+  }%
+}
+\makeatother
+
+\captionsetup{
+  labelsep    = colon,
+  labelfont   = {color = logo-blue},
+  labelformat = custom,
+  format      = captionline
+}
+
+%% CITATIONS
+$if(csl-refs)$
+\newlength{\cslhangindent}
+\setlength{\cslhangindent}{1.5em}
+\newlength{\csllabelwidth}
+\setlength{\csllabelwidth}{3em}
+\newlength{\cslentryspacingunit} % times entry-spacing
+\setlength{\cslentryspacingunit}{\parskip}
+\newenvironment{CSLReferences}[2] % #1 hanging-ident, #2 entry spacing
+ {% don't indent paragraphs
+  \setlength{\parindent}{0pt}
+  % turn on hanging indent if param 1 is 1
+  \ifodd #1
+  \let\oldpar\par
+  \def\par{\hangindent=\cslhangindent\oldpar}
+  \fi
+  % set entry spacing
+  \setlength{\parskip}{#2\cslentryspacingunit}
+ }%
+ {}
+\usepackage{calc}
+\newcommand{\CSLBlock}[1]{#1\hfill\break}
+\newcommand{\CSLLeftMargin}[1]{\parbox[t]{\csllabelwidth}{#1}}
+\newcommand{\CSLRightInline}[1]{\parbox[t]{\linewidth - \csllabelwidth}{#1}\break}
+\newcommand{\CSLIndent}[1]{\hspace{\cslhangindent}#1}
+$endif$
+
+%% BOBLIOGRAPHY
+$if(natbib)$
+$if(bibliography)$
+$if(biblio-title)$
+$if(has-chapters)$
+\renewcommand\bibname{$biblio-title$}
+$else$
+\renewcommand\refname{$biblio-title$}
+$endif$
+$endif$
+$if(beamer)$
+\begin{frame}[allowframebreaks]{$biblio-title$}
+  \bibliographytrue
+$endif$
+  \bibliography{$for(bibliography)$$bibliography$$sep$,$endfor$}
+$if(beamer)$
+\end{frame}
+$endif$
+$endif$
+$endif$
+$if(biblatex)$
+$if(beamer)$
+\begin{frame}[allowframebreaks]{$biblio-title$}
+  \bibliographytrue
+  \printbibliography[heading=none]
+\end{frame}
+$else$
+\printbibliography$if(biblio-title)$[title=$biblio-title$]$endif$
+$endif$
+$endif$
+
+%% MAIN DOCUMENT
+\begin{document}
+
+\makedragonfly
+
+$if(abstract-title)$
+  {\color{logo-blue}\fontsize{20pt}{24pt} \sffamily\bfseries{$abstract-title$}}
+$endif$
+
+$if(abstract)$
+  % \begin{abstract}
+  \raggedright
+    {{\fontsize{10pt}{14pt}\rmfamily}{$abstract$}}
+  % \end{abstract}
+  \newpage
+$endif$
+
+$if(toc)$
+  \tableofcontents
+$endif$
+
+$body$
+
+\end{document}
+

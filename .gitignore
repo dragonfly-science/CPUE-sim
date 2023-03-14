@@ -19,6 +19,9 @@
 
 # RStudio files
 .Rproj.user/
+*.Rproj
+*.rmarkdown
+
 
 # produced vignettes
 vignettes/*.html
